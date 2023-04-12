@@ -1,0 +1,211 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+<h3> Importing Data </h3>
+```{r}
+bikeshare <- read.csv(file.choose(), header = TRUE)
+```
+
+<h3> Enabling Libraries </h3>
+```{r}
+library(olsrr)
+library(sqldf)
+library(tidyverse)
+library(reshape2)
+```
+
+
+# Exploratory Data Analysis
+
+Here we want to take an initial look into the relationship of the different categorical and numeric variables with the hourly bike demands of the London Bike Sharing System
+
+<h4> Weekday Bike Demands per Hour versus Weekend Bike Demands per Hour </h4>
+```{r}
+weekday_demand <- sqldf("SELECT time, AVG(cnt) AS avg_cnt FROM bikeshare WHERE is_weekend == 0 GROUP BY time")
+weekday_demand$highlight <- with(weekday_demand, ifelse((weekday_demand$time == '8:00'|weekday_demand$time == '17:00'), T, F))
+weekend_demand <- sqldf("SELECT time, AVG(cnt) AS avg_cnt FROM bikeshare WHERE is_weekend == 1 GROUP BY time")
+weekend_demand$highlight <- with(weekend_demand, ifelse((weekend_demand$time == '14:00'|weekend_demand$time == '15:00'), T, F))
+
+weekday_plot <- ggplot(data = weekday_demand) +
+  geom_bar(mapping = aes(x = factor(time, level = c('0:00', '1:00', '2:00', '3:00', '4:00', '5:00', '6:00', '7:00', '8:00', '9:00', '10:00',
+                                                      '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00',
+                                                      '21:00', '22:00', '23:00')), y = avg_cnt, fill = highlight), stat = "identity") +
+  labs(x = "Time", y = "Average Bike Demand") +
+  ggtitle("Bike Demands on Weekdays") +
+  scale_fill_manual(values = c('#595959', '#678a54')) +
+  theme(legend.position = 'none')
+weekday_plot
+
+weekend_plot <- ggplot(data = weekend_demand) +
+  geom_bar(mapping = aes(x = factor(time, level = c('0:00', '1:00', '2:00', '3:00', '4:00', '5:00', '6:00', '7:00', '8:00', '9:00', '10:00',
+                                                    '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00',
+                                                    '21:00', '22:00', '23:00')), y = avg_cnt, fill = highlight), stat = "identity") +
+  labs(x = "Time", y = "Average Bike Demand") +
+  ggtitle("Bike Demands on Weekends") +
+  scale_fill_manual(values = c('#595959', '#678a54')) +
+  theme(legend.position = 'none')
+weekend_plot
+```
+Comparing the peak hours during the weekdays versus that of the weekends, we understand why the different riders use this service. On the weekdays, the peak hours of 8AM and 5PM tell us that riders may use this to go to work or to school. On the other hand, the peak hours on the weekends may suggest that the riders use this to get around the city for leisurely activities like shopping. 
+
+<h4> Bike Demand Per Season </h4>
+```{r}
+season_demand <- sqldf("SELECT season, AVG(cnt) AS avg_cnt FROM bikeshare GROUP BY season")
+season_demand$highlight <- with(season_demand, ifelse(season_demand$season == 1, T, F))
+
+season_demand[season_demand == 0] <- "Spring"
+season_demand[season_demand == 1] <- "Summer"
+season_demand[season_demand == 2] <- "Fall"
+season_demand[season_demand == 3] <- "Winter"
+
+ggplot(data = season_demand) +
+  geom_bar(mapping = aes(x = season, y = avg_cnt, fill = highlight), stat = "identity") +
+  ggtitle("Bike Demands per Season") +
+  labs(x = "Season", y = 'Average Bike Demand per Hour') +
+  scale_fill_manual(values = c('#595959', '#678a54')) +
+  theme(legend.position = 'none')
+```
+An understandably high usage of bikes during the summertime may tell us that the environment plays a factor in the number of active riders. With that, we may wonder if this is caused by the temperature change or possibly because of the weather conditions.
+
+<h4> Bike Demand Per Weather Condition </h4>
+```{r}
+weathercondi_demand <- sqldf("SELECT weather_code, AVG(cnt) AS avg_cnt FROM bikeshare GROUP BY weather_code")
+
+weathercondi_demand[weathercondi_demand == 1] <- "Clear Skies"
+weathercondi_demand[weathercondi_demand == 2] <- "Scattered Clouds"
+weathercondi_demand[weathercondi_demand == 3] <- "Broken Clouds"
+weathercondi_demand[weathercondi_demand == 4] <- "Cloudy"
+weathercondi_demand[weathercondi_demand == 7] <- "Light Rain/Rain"
+weathercondi_demand[weathercondi_demand == 10] <- "Rain with Thunderstorm"
+weathercondi_demand[weathercondi_demand == 26] <- "Snowfall"
+weathercondi_demand[weathercondi_demand == 94] <- "Freezing Fog"
+weathercondi_demand$highlight <- with(weathercondi_demand, ifelse(weathercondi_demand$weather_code == "Scattered Clouds", T, F))
+
+ggplot(data = weathercondi_demand) +
+  geom_bar(mapping = aes(x = factor(weather_code, levels = c("Clear Skies", "Scattered Clouds", "Broken Clouds", "Cloudy", "Light Rain/Rain", "Rain with Thunderstorm", "Snowfall", "Freezing Fog")), y = avg_cnt, fill = highlight), stat = "identity") +
+  ggtitle("Bike Demands per Weather Condition") +
+  labs(x = "Weather Condition", y = "Average Bike Demand per Hour") +
+  scale_fill_manual(values = c('#595959', '#678a54')) +
+  theme(legend.position = 'none')
+```
+Here we see that the most popular weather condition to bike in is if it is barely cloudy. This could be ideal considering that biking under clear skies or sunny weather may be uncomfortable to some.
+
+<h4> Bike Demand According to Temperature </h4>
+```{r}
+t1_demand <- sqldf("SELECT t1, cnt FROM bikeshare")
+t1_lm <- lm(cnt~t1, data = t1_demand)
+
+ggplot(data = t1_demand) +
+  geom_point(mapping = aes(x = t1, y = cnt), colour = '#595959', shape = 1) +
+  geom_abline(slope = coef(t1_lm)[2], intercept = coef(t1_lm)[1], colour = '#678a54', linewidth = 2) +
+  ggtitle('Bike Demands According to Actual Temperature') +
+  labs(x = "Temperature", y = "Bike Demand Per Hour")
+
+t2_demand <- sqldf("SELECT t2, cnt FROM bikeshare")
+t2_lm <- lm(cnt~t2, data = t2_demand)
+
+ggplot(data = t2_demand) +
+  geom_point(mapping = aes(x = t2, y = cnt), colour = '#595959', shape = 1) +
+  geom_abline(slope = coef(t2_lm)[2], intercept = coef(t2_lm)[1], colour = '#678a54', linewidth = 2) +
+  ggtitle("Bike Demands According to 'Feels-like' Temperature") +
+  labs(x = "Temperature", y = "Bike Demand Per Hour")
+```
+
+<h4> Bike Demand According to Humidity </h4>
+```{r}
+hum_demand <- sqldf("SELECT hum, cnt FROM bikeshare")
+hum_lm <- lm(cnt~hum, data = hum_demand)
+
+ggplot(data = hum_demand) +
+  geom_point(mapping = aes(x = hum, y = cnt), colour = '#595959', shape = 1) +
+  geom_abline(slope = coef(hum_lm)[2], intercept = coef(hum_lm)[1], colour = '#678a54', linewidth = 2) +
+  ggtitle('Bike Demands According to Humidity') +
+  labs(x = "Humidity", y = "Bike Demand Per Hour")
+```
+
+<h4> Bike Demand According to Wind Speed </h4>
+```{r}
+windspeed_demand <- sqldf("SELECT wind_speed, cnt FROM bikeshare")
+windspeed_lm <- lm(cnt~wind_speed, data = windspeed_demand)
+
+ggplot(data = windspeed_demand) +
+  geom_point(mapping = aes(x = wind_speed, y = cnt), colour = '#595959', shape = 1) +
+  geom_abline(slope = coef(windspeed_lm)[2], intercept = coef(windspeed_lm)[1], colour = '#678a54', linewidth = 2) +
+  ggtitle('Bike Demands According to Wind Speed') +
+  labs(x = "Wind Speed", y = "Bike Demand Per Hour")
+```
+The graphs show us the linear relationship between the different environmental factors to bike demands. We see that there is a slightly positive relationship of bike demands with temperature (both actual and "feels-like") while there is a stronger negative relationship with humidity. The slope of the regression function in relation to wind speed is not as prominent, which may tell us that they either have another form of relationship or that they may not be related strongly.
+
+
+# Machine Learning Model (Supervised - Linear Regression)
+
+Here we start to build our prediction model for the bike demands.
+
+<h4> Separating Training and Test Data </h4>
+```{r}
+set.seed(12345)
+sample <- sample(c(TRUE, FALSE), nrow(bikeshare), replace = TRUE, prob = c(0.7, 0.3))
+
+train <- bikeshare[sample, ]
+train$weather_code <- factor(train$weather_code)
+train$is_weekend <- factor(train$is_weekend)
+train$time <- factor(train$time, levels = c('0:00', '1:00', '2:00', '3:00', '4:00', '5:00', '6:00', '7:00', '8:00', '9:00', '10:00',
+                                      '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00',
+                                      '21:00', '22:00', '23:00'))
+
+test <- bikeshare[!sample, ]
+test$weather_code <- factor(test$weather_code)
+test$is_weekend <- factor(test$is_weekend)
+test$time <- factor(test$time, levels = c('0:00', '1:00', '2:00', '3:00', '4:00', '5:00', '6:00', '7:00', '8:00', '9:00', '10:00',
+                                            '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00',
+                                            '21:00', '22:00', '23:00'))
+
+
+```
+
+<h4> Correlation Analysis of Temperature, Humidity, Wind Speed, Weather Conditions, and Bike Demand </h4>
+```{r}
+revised_bikeshare <- sqldf("SELECT t1, t2, hum, wind_speed, cnt FROM bikeshare")
+cor_analysis <- round(cor(revised_bikeshare), 3)
+melted_coranalysis <- melt(cor_analysis)
+
+ggplot(data = melted_coranalysis, aes(x = Var1, y=Var2, fill=value)) +
+  geom_tile(colour = "white") +
+  scale_fill_gradient2(low = "#BC2020", mid = "white", high = "#678a54", midpoint = 0, limit = c(-1, 1), name = "Pearson\nCorrelation") +
+  geom_text(aes(Var2, Var1, label = value))
+```
+The correlation matrix shows us that the correlation among the different numerical variables that we will be using in our model is not extremely strong but there is some sort of correlation still present, which may be detrimental to our model. Aside from this, t1 and t2 have extremely high correlation as they refer to very similar factors. We will see later in our model if removing one can be beneficial to the model or not.
+
+<h4> Training Model </h4>
+```{r}
+environment_lm <- lm(cnt ~ t1 + t2 + hum + wind_speed + weather_code + is_weekend + time, data = train)
+summary(environment_lm)
+anova(environment_lm)
+
+ols_step_all_possible(environment_lm)
+
+envi_lm <- lm(cnt ~ t1 + hum + wind_speed + weather_code + is_weekend + time, data = train)
+summary(envi_lm)
+anova(envi_lm)
+```
+With the All Possible Regressions Procedure, we are able to narrow down which among t1 and t2 to remove from the model to make it more accurate. We see that the Cp value of the model with t2 removed is lower compared to the model with t1 removed while the adjusted R-squared values changes very slightly, which is preferred. 
+
+<h4> Testing Model </h4>
+```{r}
+predictions <- predict(envi_lm, test)
+evaluation <- cbind(test$cnt, predictions)
+colnames(evaluation) <- c("Actual", "Predicted")
+evaluation <- as.data.frame(evaluation)
+evaluation$difference <- evaluation$Actual - evaluation$Predicted
+
+mse <- mean((evaluation$Actual - evaluation$Predicted)^2)
+mse
+rmse <- sqrt(mse)
+rmse
+
+hist(evaluation$difference)
+```
+Our RMSE of 581.6981 is relatively high even though we removed t2. Because of this, the model may not be the most accurate hence further research and understanding may be needed to train this model to better accuracy.
